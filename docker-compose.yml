@@ -1,0 +1,142 @@
+version: "3.6" 
+services:
+    
+    zookeeper:
+        image: bitnami/zookeeper:latest
+        container_name: zookeeper
+        ports:
+        - '2181:2181'
+        environment:
+        - ALLOW_ANONYMOUS_LOGIN=yes
+        networks:
+        - kafka
+
+    kafka:
+        image: bitnami/kafka:3.3.1
+        container_name: kafka
+        ports:
+        - '9093:9093'
+        - '9092:9092'
+        environment:
+        - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+        - ALLOW_PLAINTEXT_LISTENER=yes
+        - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+        - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+        - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://localhost:9093,
+        - KAFKA_INTER_BROKER_LISTENER_NAME=CLIENT
+        - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+        depends_on:
+        - zookeeper
+        networks:
+        - kafka
+
+    kafdrop:
+        image: obsidiandynamics/kafdrop:latest
+        container_name: kafdrop
+        ports:
+        - 9000:9000
+        environment:
+        - KAFKA_BROKERCONNECT=kafka:9092
+        depends_on:
+        - kafka
+        networks:
+        - kafka
+    
+    ### DATABASE
+    influxdb:
+        image: influxdb:latest
+        container_name: influxdb
+        ports:
+            - "8086:8086"
+        depends_on:
+            - zookeeper
+            - kafka
+        env_file:
+            - ./conf/variables.env
+        environment: # parameter in variables.env
+            DOCKER_INFLUXDB_INIT_MODE: ${DOCKER_INFLUXDB_INIT_MODE}
+            DOCKER_INFLUXDB_INIT_USERNAME: ${DOCKER_INFLUXDB_INIT_USERNAME}
+            DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
+            DOCKER_INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
+            DOCKER_INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
+            DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${influxdb_token}
+        networks:
+          - db
+        volumes:
+            - ./data/influxdb/:/var/lib/influxdb
+    
+    telegraf:
+        image: telegraf:latest
+        container_name: telegraf
+        env_file:
+            - ./conf/variables.env
+        environment:
+            influxdb_token: ${influxdb_token} 
+        depends_on:
+            - zookeeper
+            - influxdb
+            - kafka
+            - mongodb
+        restart: unless-stopped
+        networks:
+          - kafka
+          - db
+        volumes:
+            - ./conf/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    
+    grafana:
+        image: grafana/grafana  
+        container_name: grafana
+        # env_file:
+        #     - ./conf/variables.env
+        environment:
+            # - GF_SECURITY_ADMIN_USERNAME=${GRAFANA_ADMIN_USERNAME}
+            # - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+            - GF_SECURITY_ADMIN_USERNAME=admin
+            - GF_SECURITY_ADMIN_PASSWORD=1234
+        ports:
+            - "3000:3000"
+        networks:
+            - grafana
+            - db
+            - line
+        depends_on:
+            - telegraf
+        volumes:
+            - ./data/grafana:/var/lib/grafana
+
+    mongodb:
+        image: mongo:latest
+        container_name: mongodb
+        ports:
+            - "27017:27017"
+        volumes:
+            - ./data/mongodb:/data/db
+        networks:
+            - db
+        restart: unless-stopped
+
+    # temperature-producer:
+    #     build:
+    #       context: ./DataSender
+    #       dockerfile: dockerfile
+    #     container_name: temperature-producer
+    #     depends_on:
+    #       - kafka
+    #     networks:
+    #       - kafka
+         
+    ### NETWORKS
+networks:
+    kafka: # connection to kafka
+        name: kafka
+        driver: bridge
+    line: # connection to linesender
+        name: line
+        driver: bridge
+    db: # connections to the database
+        name: db
+        driver: bridge
+    grafana:
+        name: grafana
+        driver: bridge
