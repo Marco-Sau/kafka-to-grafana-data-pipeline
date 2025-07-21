@@ -6,11 +6,6 @@ docker-compose.override.yml
 data/
 !data/.gitkeep
 
-# Environment files (may contain secrets)
-.env
-*.env
-!variables.env.example
-
 # Logs
 *.log
 logs/
